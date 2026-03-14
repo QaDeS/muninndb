@@ -34,7 +34,7 @@ func (ps *PebbleStore) ClearVault(ctx context.Context, ws [8]byte) (int64, error
 	// Step 1: point-delete VaultCountKey from Pebble FIRST (prevents stale re-seed).
 	// 0x15 | ws[8] = 9 bytes — the short form of the count key (not the EpisodeKey).
 	vaultCountKey := keys.VaultCountKey(ws)
-	if err := ps.db.Delete(vaultCountKey, pebble.NoSync); err != nil && !errors.Is(err, pebble.ErrNotFound) {
+	if err := ps.noSyncDelete(vaultCountKey); err != nil && !errors.Is(err, pebble.ErrNotFound) {
 		return 0, fmt.Errorf("clear vault: delete count key: %w", err)
 	}
 

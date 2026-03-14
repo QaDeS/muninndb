@@ -128,7 +128,7 @@ func (ps *PebbleStore) getOrInitCounter(ctx context.Context, wsPrefix [8]byte) *
 		// Persist so next startup avoids the scan
 		buf := make([]byte, 8)
 		binary.BigEndian.PutUint64(buf, uint64(n))
-		_ = ps.db.Set(countKey, buf, pebble.NoSync)
+		_ = ps.noSyncSet(countKey, buf)
 	})
 	return loaded
 }
@@ -184,7 +184,7 @@ func NewPebbleStore(db *pebble.DB, cfg PebbleStoreConfig) *PebbleStore {
 		assocCache:       assocCache,
 	}
 	ps.walSync = newWALSyncer(db)
-	ps.counterFlush = newCounterCoalescer(db)
+	ps.counterFlush = newCounterCoalescer(db, ps.markDirty)
 	ps.provWork = newProvenanceWorker(prov)
 	ps.transCache = NewTransitionCache(ps)
 	ps.archiveBloom = ps.RebuildArchiveBloom()
@@ -194,6 +194,59 @@ func NewPebbleStore(db *pebble.DB, cfg PebbleStoreConfig) *PebbleStore {
 // CacheLen returns the number of entries in the L1 cache.
 func (ps *PebbleStore) CacheLen() int {
 	return ps.cache.Len()
+}
+
+// markDirty signals to the WAL syncer that a NoSync write has occurred.
+// This enables adaptive sync: fsync only happens when there are dirty writes.
+func (ps *PebbleStore) markDirty() {
+	if ps.walSync != nil {
+		ps.walSync.MarkDirty()
+	}
+}
+
+// noSyncSet performs a pebble.Set with pebble.NoSync and marks the WAL syncer dirty on success.
+// This is the preferred way to perform NoSync writes - it ensures dirty tracking is automatic.
+func (ps *PebbleStore) noSyncSet(key, val []byte) error {
+	err := ps.db.Set(key, val, pebble.NoSync)
+	if err == nil {
+		ps.markDirty()
+	}
+	return err
+}
+
+// noSyncDelete performs a pebble.Delete with pebble.NoSync and marks the WAL syncer dirty on success.
+// This is the preferred way to perform NoSync deletes - it ensures dirty tracking is automatic.
+func (ps *PebbleStore) noSyncDelete(key []byte) error {
+	err := ps.db.Delete(key, pebble.NoSync)
+	if err == nil {
+		ps.markDirty()
+	}
+	return err
+}
+
+// noSyncCommit commits a batch with pebble.NoSync and marks the WAL syncer dirty on success.
+// This is the preferred way to commit NoSync batches - it ensures dirty tracking is automatic.
+func (ps *PebbleStore) noSyncCommit(batch *pebble.Batch) error {
+	err := batch.Commit(pebble.NoSync)
+	if err == nil {
+		ps.markDirty()
+	}
+	return err
+}
+
+// conditionalNoSyncCommit commits a batch with either pebble.Sync or pebble.NoSync depending
+// on the noSyncEngrams config. When using NoSync, it marks the WAL syncer dirty.
+// This is used by WriteEngram paths where the sync mode is configurable.
+func (ps *PebbleStore) conditionalNoSyncCommit(batch *pebble.Batch) error {
+	syncOption := pebble.Sync
+	if ps.noSyncEngrams {
+		syncOption = pebble.NoSync
+	}
+	err := batch.Commit(syncOption)
+	if err == nil && ps.noSyncEngrams {
+		ps.markDirty()
+	}
+	return err
 }
 
 // SetWAL sets the MOL and GroupCommitter for the PebbleStore.
@@ -303,11 +356,7 @@ func (ps *PebbleStore) WriteEngram(ctx context.Context, wsPrefix [8]byte, eng *E
 	// correct tradeoff for a write-light memory store.
 	// When noSyncEngrams=true, walSyncer provides WAL durability within 10ms,
 	// batching fsyncs across all concurrent NoSync writes at lower I/O cost.
-	syncOption := pebble.Sync
-	if ps.noSyncEngrams {
-		syncOption = pebble.NoSync
-	}
-	if err := batch.Commit(syncOption); err != nil {
+	if err := ps.conditionalNoSyncCommit(batch); err != nil {
 		return ULID{}, fmt.Errorf("commit batch: %w", err)
 	}
 
@@ -463,11 +512,7 @@ func (ps *PebbleStore) WriteEngramBatch(ctx context.Context, items []EngramBatch
 		ids[i] = eng.ID
 	}
 
-	syncOption := pebble.Sync
-	if ps.noSyncEngrams {
-		syncOption = pebble.NoSync
-	}
-	if commitErr := batch.Commit(syncOption); commitErr != nil {
+	if commitErr := ps.conditionalNoSyncCommit(batch); commitErr != nil {
 		for i := range errs {
 			if errs[i] == nil {
 				errs[i] = fmt.Errorf("commit batch: %w", commitErr)
@@ -522,7 +567,7 @@ func (ps *PebbleStore) WriteCoherence(vaultPrefix [8]byte, data [7]int64) error 
 	for i, v := range data {
 		binary.BigEndian.PutUint64(buf[i*8:], uint64(v))
 	}
-	return ps.db.Set(keys.CoherenceKey(vaultPrefix), buf, pebble.NoSync)
+	return ps.noSyncSet(keys.CoherenceKey(vaultPrefix), buf)
 }
 
 // ReadCoherence loads vault coherence counters from Pebble.

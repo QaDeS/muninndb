@@ -20,17 +20,21 @@ const counterFlushInterval = 100 * time.Millisecond
 // The in-memory atomic is authoritative; last-write-wins is correct for a
 // monotonic counter. On crash, getOrInitCounter falls back to a full scan.
 type counterCoalescer struct {
-	db   *pebble.DB
-	m    sync.Map // [8]byte → *atomic.Int64
-	stop chan struct{}
-	done chan struct{}
+	db         *pebble.DB
+	m          sync.Map // [8]byte → *atomic.Int64
+	stop       chan struct{}
+	done       chan struct{}
+	onFlushed  func() // optional callback invoked after each flush (for WAL sync)
 }
 
-func newCounterCoalescer(db *pebble.DB) *counterCoalescer {
+func newCounterCoalescer(db *pebble.DB, onFlushed ...func()) *counterCoalescer {
 	c := &counterCoalescer{
 		db:   db,
 		stop: make(chan struct{}),
 		done: make(chan struct{}),
+	}
+	if len(onFlushed) > 0 {
+		c.onFlushed = onFlushed[0]
 	}
 	go c.run()
 	return c
@@ -80,6 +84,7 @@ func (c *counterCoalescer) flush() {
 			slog.Warn("storage: unexpected panic in counter flush", "panic", r)
 		}
 	}()
+	written := false
 	var buf [8]byte
 	c.m.Range(func(k, v any) bool {
 		ws := k.([8]byte)
@@ -87,10 +92,16 @@ func (c *counterCoalescer) flush() {
 		binary.BigEndian.PutUint64(buf[:], uint64(count))
 		if err := c.db.Set(keys.VaultCountKey(ws), buf[:], pebble.NoSync); err != nil {
 			slog.Warn("storage: counter flush failed", "err", err)
+		} else {
+			written = true
 		}
 		c.m.Delete(ws)
 		return true
 	})
+	// Signal WAL syncer if any writes occurred.
+	if written && c.onFlushed != nil {
+		c.onFlushed()
+	}
 }
 
 // Delete removes any pending counter entry for ws so a stale flush cannot

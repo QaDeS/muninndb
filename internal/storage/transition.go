@@ -80,7 +80,7 @@ func (ps *PebbleStore) IncrTransitionBatch(ctx context.Context, updates []Transi
 		}
 	}
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := ps.noSyncCommit(batch); err != nil {
 		return fmt.Errorf("commit transition batch: %w", err)
 	}
 	return nil
@@ -107,7 +107,7 @@ func (ps *PebbleStore) SetTransitionBatch(ctx context.Context, sets []Transition
 		}
 	}
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := ps.noSyncCommit(batch); err != nil {
 		return fmt.Errorf("commit transition set batch: %w", err)
 	}
 	return nil

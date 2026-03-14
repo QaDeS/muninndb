@@ -123,7 +123,7 @@ func (ps *PebbleStore) WriteAssociation(ctx context.Context, wsPrefix [8]byte, s
 	binary.BigEndian.PutUint32(weightBuf[:], math.Float32bits(assoc.Weight))
 	batch.Set(keys.AssocWeightIndexKey(wsPrefix, [16]byte(src), [16]byte(dst)), weightBuf[:], nil)
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := ps.noSyncCommit(batch); err != nil {
 		return fmt.Errorf("commit batch: %w", err)
 	}
 
@@ -479,7 +479,7 @@ func (ps *PebbleStore) UpdateAssocWeightBatch(ctx context.Context, updates []Ass
 		batch.Set(keys.AssocWeightIndexKey(update.WS, update.Src, update.Dst), wiBuf[:], nil)
 	}
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := ps.noSyncCommit(batch); err != nil {
 		return fmt.Errorf("commit batch: %w", err)
 	}
 
@@ -583,7 +583,7 @@ func (ps *PebbleStore) DecayAssocWeights(ctx context.Context, wsPrefix [8]byte, 
 				_ = batch.Delete(keys.AssocWeightIndexKey(wsPrefix, e.src, e.dst), nil)
 			}
 		}
-		if err := batch.Commit(pebble.NoSync); err != nil {
+		if err := ps.noSyncCommit(batch); err != nil {
 			return fmt.Errorf("decay assoc chunk commit: %w", err)
 		}
 		chunk = chunk[:0]
@@ -763,7 +763,7 @@ func (ps *PebbleStore) FlagContradiction(ctx context.Context, wsPrefix [8]byte, 
 	contraKeyRev := keys.ContradictionKey(wsPrefix, 0, 0, bBytes)
 	batch.Set(contraKeyRev, aBytes[:], nil)
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := ps.noSyncCommit(batch); err != nil {
 		return fmt.Errorf("commit batch: %w", err)
 	}
 
@@ -786,10 +786,7 @@ func (ps *PebbleStore) ResolveContradiction(ctx context.Context, wsPrefix [8]byt
 	batch.Delete(contraKeyAB, nil)
 	batch.Delete(contraKeyBA, nil)
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
-		return fmt.Errorf("resolve contradiction: %w", err)
-	}
-	return nil
+	return ps.noSyncCommit(batch)
 }
 
 // GetContradictions returns all contradiction pairs in the vault by scanning the 0x0A prefix.

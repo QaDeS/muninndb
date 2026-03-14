@@ -111,7 +111,7 @@ func (ps *PebbleStore) SetDigestFlag(ctx context.Context, id ULID, flag uint8) e
 	}
 	raw |= flag
 	key := keys.DigestFlagsKey([16]byte(id))
-	return ps.db.Set(key, []byte{raw}, pebble.NoSync)
+	return ps.noSyncSet(key, []byte{raw})
 }
 
 // GetDigestFlags returns the current digest flags byte for an engram.

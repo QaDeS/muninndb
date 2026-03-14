@@ -283,7 +283,7 @@ func (ps *PebbleStore) UpdateMetadata(ctx context.Context, wsPrefix [8]byte, id 
 	ps.cache.Delete(wsPrefix, id)
 	ps.metaCache.Remove([16]byte(id))
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := ps.noSyncCommit(batch); err != nil {
 		return fmt.Errorf("commit batch: %w", err)
 	}
 
@@ -356,7 +356,7 @@ func (ps *PebbleStore) UpdateRelevance(ctx context.Context, wsPrefix [8]byte, id
 	ps.cache.Delete(wsPrefix, id)
 	ps.metaCache.Remove([16]byte(id))
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := ps.noSyncCommit(batch); err != nil {
 		return fmt.Errorf("commit batch: %w", err)
 	}
 
@@ -384,7 +384,7 @@ func (ps *PebbleStore) DeleteEngram(ctx context.Context, wsPrefix [8]byte, id UL
 		batch.Delete(keys.EngramKey(wsPrefix, [16]byte(id)), nil)
 		batch.Delete(keys.MetaKey(wsPrefix, [16]byte(id)), nil)
 		ps.cache.Delete(wsPrefix, id)
-		return batch.Commit(pebble.NoSync)
+		return ps.noSyncCommit(batch)
 	}
 
 	batch := ps.db.NewBatch()

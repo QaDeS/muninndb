@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/cockroachdb/pebble"
 	"github.com/scrypster/muninndb/internal/storage/keys"
 )
 
@@ -21,7 +20,7 @@ func (ps *PebbleStore) WriteOrdinal(ctx context.Context, wsPrefix [8]byte, paren
 	batch := ps.db.NewBatch()
 	defer batch.Close()
 	batch.Set(key, val[:], nil)
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := ps.noSyncCommit(batch); err != nil {
 		return fmt.Errorf("WriteOrdinal commit: %w", err)
 	}
 	return nil
@@ -44,7 +43,7 @@ func (ps *PebbleStore) DeleteOrdinal(ctx context.Context, wsPrefix [8]byte, pare
 	batch := ps.db.NewBatch()
 	defer batch.Close()
 	batch.Delete(key, nil)
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := ps.noSyncCommit(batch); err != nil {
 		return fmt.Errorf("DeleteOrdinal commit: %w", err)
 	}
 	return nil

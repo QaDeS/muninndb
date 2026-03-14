@@ -16,6 +16,11 @@ const walSyncInterval = 10 * time.Millisecond
 // all batch.Commit(pebble.NoSync) writes accumulate in the WAL and are durably
 // fsynced every walSyncInterval (default 10ms). Max data loss on crash: 10ms.
 //
+// Adaptive Sync: The syncer tracks a dirty flag that is set via MarkDirty()
+// whenever a NoSync write occurs. The syncer only performs an actual fsync
+// when dirty is true, eliminating idle disk writes while maintaining the
+// same 10ms durability window for active writes.
+//
 // This is the same trade-off as MySQL innodb_flush_log_at_trx_commit=2 or
 // PostgreSQL synchronous_commit=off, and is safe because Pebble's own WAL
 // provides crash recovery — the LogData sync covers all preceding NoSync writes.
@@ -58,6 +63,7 @@ type walSyncer struct {
 	stop    chan struct{}
 	done    chan struct{}
 	stopped atomic.Bool // set true before signalling the goroutine to stop
+	dirty   atomic.Bool // set true when NoSync writes occur; cleared after sync
 }
 
 func newWALSyncer(db *pebble.DB) *walSyncer {
@@ -78,10 +84,16 @@ func (s *walSyncer) run() {
 	for {
 		select {
 		case <-ticker.C:
-			s.doSync()
+			if s.dirty.Load() {
+				s.doSync()
+				s.dirty.Store(false)
+			}
 		case <-s.stop:
 			// Final sync before shutdown.
-			s.doSync()
+			if s.dirty.Load() {
+				s.doSync()
+				s.dirty.Store(false)
+			}
 			return
 		}
 	}
@@ -120,6 +132,12 @@ func (s *walSyncer) doSync() {
 		}
 		slog.Error("storage: WAL sync failed", "component", "wal_syncer", "err", err)
 	}
+}
+
+// MarkDirty signals that a NoSync write has occurred and a sync is needed.
+// This is called by the storage layer after any pebble.NoSync write.
+func (s *walSyncer) MarkDirty() {
+	s.dirty.Store(true)
 }
 
 // Close signals the syncer to stop and blocks until the final sync completes.

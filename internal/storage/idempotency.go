@@ -46,7 +46,7 @@ func (ps *PebbleStore) WriteIdempotency(ctx context.Context, opID, engramID stri
 		return fmt.Errorf("marshal idempotency receipt: %w", err)
 	}
 	key := keys.IdempotencyKey(opID)
-	return ps.db.Set(key, val, pebble.NoSync)
+	return ps.noSyncSet(key, val)
 }
 
 // PurgeExpiredIdempotency deletes idempotency receipts older than maxAge.
@@ -107,7 +107,7 @@ func (ps *PebbleStore) PurgeExpiredIdempotency(ctx context.Context, maxAge time.
 				return deleted, fmt.Errorf("purge idempotency: batch delete: %w", err)
 			}
 		}
-		if err := batch.Commit(pebble.NoSync); err != nil {
+		if err := ps.noSyncCommit(batch); err != nil {
 			batch.Close()
 			return deleted, fmt.Errorf("purge idempotency: batch commit: %w", err)
 		}

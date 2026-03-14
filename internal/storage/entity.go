@@ -166,7 +166,7 @@ func (ps *PebbleStore) UpsertEntityRecord(ctx context.Context, record EntityReco
 	if err != nil {
 		return fmt.Errorf("entity record marshal: %w", err)
 	}
-	return ps.db.Set(key, val, pebble.NoSync)
+	return ps.noSyncSet(key, val)
 }
 
 // GetEntityRecord reads a global entity record by name. Returns nil, nil if not found.
@@ -406,7 +406,7 @@ func (ps *PebbleStore) IncrementEntityCoOccurrence(ctx context.Context, ws [8]by
 	if err != nil {
 		return fmt.Errorf("co-occurrence marshal: %w", err)
 	}
-	return ps.db.Set(key, val, pebble.NoSync)
+	return ps.noSyncSet(key, val)
 }
 
 // ScanEntityClusters scans the 0x24 co-occurrence index for a vault and calls fn
@@ -698,7 +698,7 @@ func (ps *PebbleStore) RelinkRelationshipEntity(ctx context.Context, ws [8]byte,
 				return fmt.Errorf("relink relationship entity: set new idx: %w", err)
 			}
 		}
-		if err := batch.Commit(pebble.NoSync); err != nil {
+		if err := ps.noSyncCommit(batch); err != nil {
 			batch.Close()
 			return fmt.Errorf("relink relationship entity: commit: %w", err)
 		}
@@ -813,7 +813,7 @@ func (ps *PebbleStore) UpdateDigest(ctx context.Context, id ULID, summary string
 	ps.cache.Delete(ws, id)
 	ps.metaCache.Remove([16]byte(id))
 
-	if err := batch.Commit(pebble.NoSync); err != nil {
+	if err := ps.noSyncCommit(batch); err != nil {
 		return fmt.Errorf("UpdateDigest: commit: %w", err)
 	}
 
@@ -861,7 +861,7 @@ func (ps *PebbleStore) DecrementEntityMentionCount(ctx context.Context, name str
 			iter.Close()
 		}
 		if orphaned {
-			return ps.db.Delete(keys.EntityKey(nameHash), pebble.NoSync)
+			return ps.noSyncDelete(keys.EntityKey(nameHash))
 		}
 	}
 
@@ -870,7 +870,7 @@ func (ps *PebbleStore) DecrementEntityMentionCount(ctx context.Context, name str
 	if err != nil {
 		return fmt.Errorf("decrement entity mention count: marshal: %w", err)
 	}
-	return ps.db.Set(keys.EntityKey(nameHash), val, pebble.NoSync)
+	return ps.noSyncSet(keys.EntityKey(nameHash), val)
 }
 
 // DecrementEntityCoOccurrence decrements the co-occurrence count for a pair of
@@ -913,7 +913,7 @@ func (ps *PebbleStore) DecrementEntityCoOccurrence(ctx context.Context, ws [8]by
 	}
 
 	if rec.Count <= 1 {
-		return ps.db.Delete(key, pebble.NoSync)
+		return ps.noSyncDelete(key)
 	}
 
 	rec.Count--
