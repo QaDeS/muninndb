@@ -298,28 +298,10 @@ func (w *RESTEngineWrapper) EmbedStats() plugin.RetroactiveStats {
 	return w.engine.EmbedStats()
 }
 
-// lifecycleStateLabel returns a human-readable label for a storage.LifecycleState.
+// lifecycleStateLabel returns the human-readable label for a storage.LifecycleState.
+// Delegates to storage.LifecycleState.String() — the single source of truth.
 func lifecycleStateLabel(s storage.LifecycleState) string {
-	switch s {
-	case storage.StatePlanning:
-		return "planning"
-	case storage.StateActive:
-		return "active"
-	case storage.StatePaused:
-		return "paused"
-	case storage.StateBlocked:
-		return "blocked"
-	case storage.StateCompleted:
-		return "completed"
-	case storage.StateCancelled:
-		return "cancelled"
-	case storage.StateArchived:
-		return "archived"
-	case storage.StateSoftDeleted:
-		return "soft_deleted"
-	default:
-		return fmt.Sprintf("unknown(%d)", s)
-	}
+	return s.String()
 }
 
 func (w *RESTEngineWrapper) Evolve(ctx context.Context, vault, engramID, newContent, reason string) (*EvolveResponse, error) {
@@ -331,23 +313,23 @@ func (w *RESTEngineWrapper) Evolve(ctx context.Context, vault, engramID, newCont
 }
 
 func (w *RESTEngineWrapper) Consolidate(ctx context.Context, vault string, ids []string, mergedContent string) (*ConsolidateResponse, error) {
-	newID, archived, warnings, err := w.engine.Consolidate(ctx, vault, ids, mergedContent)
+	res, err := w.engine.Consolidate(ctx, vault, ids, mergedContent)
 	if err != nil {
 		return nil, err
 	}
 	return &ConsolidateResponse{
-		ID:       newID.String(),
-		Archived: archived,
-		Warnings: warnings,
+		ID:       res.MergedID.String(),
+		Archived: res.Archived,
+		Warnings: res.Warnings,
 	}, nil
 }
 
 func (w *RESTEngineWrapper) Decide(ctx context.Context, vault, decision, rationale string, alternatives, evidenceIDs []string) (*DecideResponse, error) {
-	newID, err := w.engine.Decide(ctx, vault, decision, rationale, alternatives, evidenceIDs)
+	res, err := w.engine.Decide(ctx, vault, decision, rationale, alternatives, evidenceIDs)
 	if err != nil {
 		return nil, err
 	}
-	return &DecideResponse{ID: newID.String()}, nil
+	return &DecideResponse{ID: res.ID.String(), Warnings: res.Warnings}, nil
 }
 
 func (w *RESTEngineWrapper) Restore(ctx context.Context, vault, engramID string) (*RestoreResponse, error) {
@@ -419,8 +401,7 @@ func (w *RESTEngineWrapper) UpdateTags(ctx context.Context, vault, engramID stri
 	if err != nil {
 		return fmt.Errorf("invalid engram id: %w", err)
 	}
-	ws := w.engine.Store().ResolveVaultPrefix(vault)
-	return w.engine.Store().UpdateTags(ctx, ws, ulid, tags)
+	return w.engine.UpdateTags(ctx, vault, ulid, tags)
 }
 
 func (w *RESTEngineWrapper) ListDeleted(ctx context.Context, vault string, limit int) (*ListDeletedResponse, error) {
@@ -453,8 +434,7 @@ func (w *RESTEngineWrapper) RetryEnrich(ctx context.Context, vault, engramID str
 	if err != nil {
 		return nil, fmt.Errorf("invalid engram id: %w", err)
 	}
-	ws := w.engine.Store().ResolveVaultPrefix(vault)
-	eng, err := w.engine.Store().GetEngram(ctx, ws, ulid)
+	eng, err := w.engine.GetEngram(ctx, vault, ulid)
 	if err != nil {
 		return nil, fmt.Errorf("get engram: %w", err)
 	}
@@ -485,11 +465,10 @@ func (w *RESTEngineWrapper) GetContradictions(ctx context.Context, vault string)
 	if err != nil {
 		return nil, err
 	}
-	ws := w.engine.Store().ResolveVaultPrefix(vault)
 	items := make([]ContradictionItem, 0, len(pairs))
 	for _, pair := range pairs {
-		engA, errA := w.engine.Store().GetEngram(ctx, ws, pair[0])
-		engB, errB := w.engine.Store().GetEngram(ctx, ws, pair[1])
+		engA, errA := w.engine.GetEngram(ctx, vault, pair[0])
+		engB, errB := w.engine.GetEngram(ctx, vault, pair[1])
 		item := ContradictionItem{
 			IDa: pair[0].String(),
 			IDb: pair[1].String(),
